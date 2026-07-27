@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GymSync</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .table-container { overflow-x: auto; }
+        th, td { white-space: nowrap; }
+        #loading { display: none; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans p-4 md:p-8">
+
+    <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-md relative">
+        <div id="loading" class="absolute inset-0 bg-white/80 flex justify-center items-center z-50 rounded-xl">
+            <div class="text-blue-600 font-bold text-xl animate-pulse">通信中...</div>
+        </div>
+
+        <h1 class="text-2xl md:text-3xl font-bold text-blue-600 mb-6">🏐 GymSync</h1>
+
+        <div class="mb-8 p-4 bg-blue-50 rounded-lg">
+            <h2 class="text-lg font-semibold mb-3">1. 体育館の空き時間を追加</h2>
+            <div class="flex flex-col md:flex-row gap-2">
+                <input type="text" id="new-date" placeholder="例: 8/15(火) 18:00〜" class="flex-1 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+                <button onclick="handleAddDate()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">追加</button>
+            </div>
+        </div>
+
+        <div class="mb-8 border-t pt-6">
+            <h2 class="text-lg font-semibold mb-3">2. 出欠を入力</h2>
+            <div class="mb-3">
+                <input type="text" id="participant-name" placeholder="あなたの名前" class="w-full md:w-1/2 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-400">
+            </div>
+            <div id="vote-options" class="flex flex-col gap-2 mb-4 text-gray-500">
+                候補日が追加されるとここに入力欄が表示されます。
+            </div>
+            <button onclick="handleSubmit()" class="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 transition w-full md:w-auto">送信</button>
+        </div>
+
+        <div>
+            <h2 class="text-lg font-semibold mb-3">現在の回答状況</h2>
+            <div class="table-container border rounded">
+                <table class="w-full text-left border-collapse">
+                    <thead id="table-head" class="bg-gray-100"></thead>
+                    <tbody id="table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 🔴 ここをステップ1で取得したGASのURLに書き換えてください
+        const API_URL = "YOUR_GAS_WEB_APP_URL";
+        let state = { dates: [], participants: [] };
+
+        function updateUI(data) {
+            state = data;
+            const voteContainer = document.getElementById('vote-options');
+            if (state.dates.length === 0) {
+                voteContainer.innerHTML = "候補日がありません。";
+            } else {
+                voteContainer.innerHTML = "";
+                state.dates.forEach((date, index) => {
+                    voteContainer.innerHTML += `
+                        <div class="flex items-center justify-between bg-gray-50 p-2 rounded border">
+                            <span class="font-medium">${date}</span>
+                            <div class="flex gap-4 text-gray-800">
+                                <label><input type="radio" name="vote-${index}" value="〇" checked> 〇</label>
+                                <label><input type="radio" name="vote-${index}" value="△"> △</label>
+                                <label><input type="radio" name="vote-${index}" value="×"> ×</label>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            const thead = document.getElementById('table-head');
+            const tbody = document.getElementById('table-body');
+            
+            if (state.dates.length > 0) {
+                let headHTML = `<tr><th class="p-3 border-b border-r">名前</th>`;
+                state.dates.forEach(date => headHTML += `<th class="p-3 border-b text-center">${date}</th>`);
+                thead.innerHTML = headHTML + `</tr>`;
+
+                let bodyHTML = "";
+                state.participants.forEach(p => {
+                    bodyHTML += `<tr><td class="p-3 border-b border-r font-medium">${p.name}</td>`;
+                    p.votes.forEach(vote => {
+                        let color = vote === "〇" ? "text-green-600 font-bold" : (vote === "×" ? "text-red-500" : "text-gray-400");
+                        bodyHTML += `<td class="p-3 border-b text-center ${color}">${vote || '-'}</td>`;
+                    });
+                    bodyHTML += `</tr>`;
+                });
+
+                bodyHTML += `<tr class="bg-blue-50"><td class="p-3 font-bold border-r">〇の数</td>`;
+                state.dates.forEach((_, index) => {
+                    let count = state.participants.filter(p => p.votes[index] === "〇").length;
+                    bodyHTML += `<td class="p-3 text-center font-bold text-blue-600">${count}</td>`;
+                });
+                tbody.innerHTML = bodyHTML + `</tr>`;
+            } else {
+                thead.innerHTML = "";
+                tbody.innerHTML = `<tr><td class="p-4 text-gray-500">データがありません。</td></tr>`;
+            }
+
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        async function handleAddDate() {
+            const input = document.getElementById('new-date');
+            const dateStr = input.value.trim();
+            if (!dateStr) return;
+            
+            document.getElementById('loading').style.display = 'flex';
+            
+            try {
+                // POSTリクエストでGASにデータを送信（CORS対策のため text/plain で送信）
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'addDate', dateStr: dateStr })
+                });
+                const data = await response.json();
+                updateUI(data);
+                input.value = "";
+            } catch (e) {
+                alert("エラーが発生しました: " + e.message);
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        async function handleSubmit() {
+            const name = document.getElementById('participant-name').value.trim();
+            if (!name) {
+                alert("名前を入力してください");
+                return;
+            }
+            if (state.dates.length === 0) return;
+
+            const votes = [];
+            state.dates.forEach((_, index) => {
+                const selected = document.querySelector(`input[name="vote-${index}"]:checked`);
+                votes.push(selected ? selected.value : "-");
+            });
+
+            document.getElementById('loading').style.display = 'flex';
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'submitVote', name: name, votes: votes })
+                });
+                const data = await response.json();
+                updateUI(data);
+                document.getElementById('participant-name').value = "";
+            } catch (e) {
+                alert("エラーが発生しました: " + e.message);
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // 初回読み込み時のデータ取得(GET)
+        async function loadInitialData() {
+            document.getElementById('loading').style.display = 'flex';
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+                updateUI(data);
+            } catch (e) {
+                alert("データ取得に失敗しました: " + e.message);
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // ロード時に実行
+        loadInitialData();
+    </script>
+</body>
+</html>
